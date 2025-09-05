@@ -1,0 +1,109 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Batch Brightness Tool with ZIP</title>
+  <style>
+    body { font-family: Arial, sans-serif; padding: 20px; background: #f4f4f4; }
+    h2 { text-align: center; }
+    input, button { margin: 10px 0; padding: 8px 12px; }
+    .preview { display: flex; flex-wrap: wrap; gap: 10px; }
+    .preview img { width: 150px; border: 1px solid #ccc; border-radius: 5px; }
+    #downloadBtn { display: none; background: #4CAF50; color: #fff; border: none; border-radius: 5px; cursor: pointer; }
+    #processBtn { background: #2196F3; color: #fff; border: none; border-radius: 5px; cursor: pointer; }
+  </style>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/FileSaver.js/2.0.5/FileSaver.min.js"></script>
+</head>
+<body>
+  <h2>Batch Photo Brightness Tool</h2>
+
+  <input type="file" id="fileInput" multiple accept="image/*"><br>
+  <label>Brightness Factor (1 = normal, >1 brighter, <1 darker):</label>
+  <input type="number" id="brightness" value="1.2" step="0.1" min="0.1"><br>
+  <button id="processBtn">Process Images</button>
+  <button id="downloadBtn">Download ZIP</button>
+
+  <h3>Preview:</h3>
+  <div class="preview" id="preview"></div>
+
+  <script>
+    const fileInput = document.getElementById("fileInput");
+    const processBtn = document.getElementById("processBtn");
+    const brightnessInput = document.getElementById("brightness");
+    const preview = document.getElementById("preview");
+    const downloadBtn = document.getElementById("downloadBtn");
+
+    let zipBlob = null; // store generated ZIP blob
+
+    // Function to adjust brightness with canvas
+    function adjustBrightness(image, factor) {
+      const canvas = document.createElement("canvas");
+      const ctx = canvas.getContext("2d");
+      canvas.width = image.width;
+      canvas.height = image.height;
+      ctx.filter = `brightness(${factor})`;
+      ctx.drawImage(image, 0, 0);
+      return canvas;
+    }
+
+    processBtn.addEventListener("click", async () => {
+      if (!fileInput.files.length) {
+        alert("Please select images first!");
+        return;
+      }
+
+      const brightness = parseFloat(brightnessInput.value) || 1;
+      preview.innerHTML = "";
+      downloadBtn.style.display = "none";
+      zipBlob = null;
+
+      const zip = new JSZip();
+      const folder = zip.folder("brightened_photos"); // create folder inside ZIP
+
+      const promises = [];
+
+      for (const file of fileInput.files) {
+        const promise = new Promise((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onload = e => {
+            const img = new Image();
+            img.onload = () => {
+              const canvas = adjustBrightness(img, brightness);
+
+              // Preview small version
+              const small = document.createElement("img");
+              small.src = canvas.toDataURL("image/jpeg");
+              preview.appendChild(small);
+
+              // Save into ZIP with same file name
+              canvas.toBlob(blob => {
+                folder.file(file.name, blob);
+                resolve();
+              }, file.type);
+            };
+            img.src = e.target.result;
+          };
+          reader.onerror = reject;
+          reader.readAsDataURL(file);
+        });
+        promises.push(promise);
+      }
+
+      // After processing all images
+      Promise.all(promises).then(() => {
+        zip.generateAsync({ type: "blob" }).then(content => {
+          zipBlob = content;
+          downloadBtn.style.display = "inline-block"; // show download button
+        });
+      });
+    });
+
+    downloadBtn.addEventListener("click", () => {
+      if (zipBlob) {
+        saveAs(zipBlob, "brightened_photos.zip");
+      }
+    });
+  </script>
+</body>
+</html>

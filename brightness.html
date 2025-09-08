@@ -27,83 +27,85 @@
   <h3>Preview:</h3>
   <div class="preview" id="preview"></div>
 
-  <script>
-    const fileInput = document.getElementById("fileInput");
-    const processBtn = document.getElementById("processBtn");
-    const brightnessInput = document.getElementById("brightness");
-    const preview = document.getElementById("preview");
-    const downloadBtn = document.getElementById("downloadBtn");
+<script>
+const fileInput = document.getElementById("fileInput");
+const processBtn = document.getElementById("processBtn");
+const brightnessInput = document.getElementById("brightness");
+const preview = document.getElementById("preview");
+const downloadBtn = document.getElementById("downloadBtn");
 
-    let zipBlob = null; // store generated ZIP blob
+let zipBlob = null;
 
-    // Function to adjust brightness with canvas
-    function adjustBrightness(image, factor) {
-      const canvas = document.createElement("canvas");
-      const ctx = canvas.getContext("2d");
-      canvas.width = image.width;
-      canvas.height = image.height;
-      ctx.filter = `brightness(${factor})`;
-      ctx.drawImage(image, 0, 0);
-      return canvas;
-    }
+// reuse one canvas
+const canvas = document.createElement("canvas");
+const ctx = canvas.getContext("2d");
 
-    processBtn.addEventListener("click", async () => {
-      if (!fileInput.files.length) {
-        alert("Please select images first!");
-        return;
-      }
+function drawWithBrightness(bitmap, factor) {
+  canvas.width = bitmap.width;
+  canvas.height = bitmap.height;
+  ctx.filter = `brightness(${factor})`;
+  ctx.drawImage(bitmap, 0, 0);
+  return canvas;
+}
 
-      const brightness = parseFloat(brightnessInput.value) || 1;
-      preview.innerHTML = "";
-      downloadBtn.style.display = "none";
-      zipBlob = null;
+processBtn.addEventListener("click", async () => {
+  if (!fileInput.files.length) {
+    alert("Please select images first!");
+    return;
+  }
 
-      const zip = new JSZip();
-      const folder = zip.folder("brightened_photos"); // create folder inside ZIP
+  const brightness = parseFloat(brightnessInput.value) || 1;
+  preview.innerHTML = "";
+  downloadBtn.style.display = "none";
+  zipBlob = null;
 
-      const promises = [];
+  const zip = new JSZip();
+  const folder = zip.folder("brightened_photos");
 
-      for (const file of fileInput.files) {
-        const promise = new Promise((resolve, reject) => {
-          const reader = new FileReader();
-          reader.onload = e => {
-            const img = new Image();
-            img.onload = () => {
-              const canvas = adjustBrightness(img, brightness);
+  const tasks = Array.from(fileInput.files).map(async file => {
+    try {
+      // try fast decode + brighten
+      const bitmap = await createImageBitmap(file);
+      const c = drawWithBrightness(bitmap, brightness);
 
-              // Preview small version
-              const small = document.createElement("img");
-              small.src = canvas.toDataURL("image/jpeg");
-              preview.appendChild(small);
+      // preview brightened
+      const img = document.createElement("img");
+      img.src = c.toDataURL("image/jpeg");
+      preview.appendChild(img);
 
-              // Save into ZIP with same file name
-              canvas.toBlob(blob => {
-                folder.file(file.name, blob);
-                resolve();
-              }, file.type);
-            };
-            img.src = e.target.result;
-          };
-          reader.onerror = reject;
-          reader.readAsDataURL(file);
-        });
-        promises.push(promise);
-      }
-
-      // After processing all images
-      Promise.all(promises).then(() => {
-        zip.generateAsync({ type: "blob" }).then(content => {
-          zipBlob = content;
-          downloadBtn.style.display = "inline-block"; // show download button
-        });
+      // put brightened into zip
+      return new Promise(resolve => {
+        c.toBlob(blob => {
+          folder.file(file.name, blob);
+          resolve();
+        }, file.type || "image/jpeg");
       });
-    });
+    } catch (err) {
+      console.warn("Could not brighten, adding original:", file.name);
 
-    downloadBtn.addEventListener("click", () => {
-      if (zipBlob) {
-        saveAs(zipBlob, "brightened_photos.zip");
-      }
-    });
-  </script>
+      // preview original
+      const img = document.createElement("img");
+      img.src = URL.createObjectURL(file);
+      preview.appendChild(img);
+
+      // add original file to zip
+      folder.file(file.name, file);
+      return Promise.resolve();
+    }
+  });
+
+  await Promise.all(tasks);
+
+  zip.generateAsync({type:"blob"}).then(content => {
+    zipBlob = content;
+    downloadBtn.style.display = "inline-block";
+  });
+});
+
+downloadBtn.addEventListener("click", () => {
+  if (zipBlob) saveAs(zipBlob, "brightened_photos.zip");
+});
+</script>
+
 </body>
 </html>
